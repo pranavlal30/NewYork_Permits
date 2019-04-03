@@ -3,15 +3,101 @@ library(ggplot2)
 library(lubridate)
 library(dplyr)
 library(ggmap)
+library(plyr)
 
 wd <- getwd()
 
-full_data <- fread(paste(wd,"Data/DOB_Permit_Issuance.csv", sep = '/'))
+permit_issuance <- fread(paste(wd,"Data/DOB_Permit_Issuance.csv", sep = '/'))
+permit_issuance[, `Issuance Date` := date(mdy_hms(`Issuance Date`))]
+permit_issuance$`Issuance Date` <- as.Date(permit_issuance$`Issuance Date`)
+permit_issuance <- permit_issuance[!is.na(permit_issuance$`Issuance Date`),]
+#range(permit_issuance$`Issuance Date`, na.rm = TRUE) 
+permit_issuance[,year := format(`Issuance Date`, "%Y")]
+permit_issuance[,month := format(`Issuance Date`, "%m")]
 
-nrow(full_data)
-head(full_data)
-full_data[`Job #` == 123372466,]
-summary(full_data)
+nrow(permit_issuance[BOROUGH == "MANHATTAN"])/nrow(permit_issuance)
+
+summary(permit_issuance)
+
+NoOfJobs <- permit_issuance[year > 1989,.(NoOfJobs = .N), by = c('year', 'BOROUGH')]
+
+NoOfJobs <- NoOfJobs[!year == "NA",]
+head(NoOfJobs)
+NoOfJobs <- NoOfJobs[order(BOROUGH, year)]
+
+percent_change <- function(x) {
+  (x/shift(x)) - 1
+}
+
+cols <- c("NoOfJobs")
+NoOfJobs[, "percent_change_Jobs" := lapply(.SD, percent_change), by = BOROUGH, .SDcols = cols][]
+head(NoOfJobs)
+
+ggplot(NoOfJobs[year < 2019,], aes(x = year, y = NoOfJobs, col = BOROUGH, group = BOROUGH)) +
+  geom_line() +
+  ylab("NoOfJobs") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Evolution of Jobs filed with the DOB")+
+  scale_x_discrete(breaks = c('1989', '1994', '1999', '2004', '2009', '2014', '2018'))
+ggsave(filename = paste(wd,"Results/NoOfJobsByBorough.png", sep = '/'))
+ggplot(NoOfJobs[year < 2019 & percent_change_Jobs < 1,], aes(x = year, y = (percent_change_Jobs*100), col = BOROUGH, group = BOROUGH)) +
+  geom_line() +
+  ylab("NoOfJobs") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Evolution of Jobs filed with the DOB")+
+  scale_x_discrete(breaks = c('1989', '1994', '1999', '2004', '2009', '2014', '2018'))
+
+NoOfJobs <- NoOfJobs[year <2018 & year > 1990,]
+###Population
+#Prepare the population Data
+Population <- fread(paste(wd,"Data/Annual_Population_Estimates.csv", sep = '/'))
+counties <- c("New York County", "Kings County", "Bronx County", "Richmond County", "Queens County")
+Population <- Population[Geography %in% counties,]
+Population[,c('Program Type', 'FIPS Code') := NULL]
+head(Population)
+Population[,Geography := as.factor(Geography)]
+
+levels(Population$Geography) <- c("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island")
+colnames(Population) <- c("Borough", "Year", "Population")
+Population <- Population[order(Borough, Year)]
+Population <- Population[Year > 1989,]
+head(Population)
+
+
+
+cols <- c("Population")
+Population[, "percent_change_population" := lapply(.SD, percent_change), by = Borough, .SDcols = cols][]
+Population <- data.table(ddply(Population,c('Borough', 'Year'), numcolwise(mean)))
+Population <- Population[!is.na(percent_change_population),]
+ggplot(Population[Year < 2019,], aes(x = Year, y = (percent_change_population*100), col = Borough, group = Borough)) +
+  geom_line() +
+  ylab("NoOfJobs") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Evolution of Jobs filed with the DOB")
+
+
+#Find correlation between %inc in population and permits
+cor(Population$percent_change_population, NoOfJobs$percent_change_Jobs, use = "complete.obs")
+cor(Population$Population, NoOfJobs$NoOfJobs)
+#0.4302929
+
+Population[,c('Borough', 'Year') := NULL]
+head(Population)
+nrow(Population)
+Population[,MetricType := rep('Population', 135)]
+NoOfJobs[,c('BOROUGH', 'year') := NULL]
+NoOfJobs[,MetricType := rep('NoOfJobs', 135)]
+colnames(Population) <- c("TrueValue", "Percent_Increase", "MetricType")
+colnames(NoOfJobs) <- c("TrueValue", "Percent_Increase", "MetricType")
+Population[,TrueValue := scale(TrueValue)]
+Population[,Percent_Increase := scale(Percent_Increase)]
+NoOfJobs[,TrueValue := scale(TrueValue)]
+NoOfJobs[,Percent_Increase := scale(Percent_Increase)]
+combined_data <- rbind(Population, NoOfJobs)
+
+head(combined_data)
+wilcox.test(TrueValue ~ MetricType, data = combined_data)
+wilcox.test(Percent_Increase ~ MetricType, data = combined_data)
 
 
 #######################################################################################
@@ -19,20 +105,20 @@ summary(full_data)
 #######################################################################################
 
 #Convert Borough to factor
-full_data[, BOROUGH := as.factor(BOROUGH)]
-barplot(table(full_data[,BOROUGH]))
-ggplot(data = data.frame(full_data[,.(BOROUGH, `Permit Status`)]), aes(x = full_data[,BOROUGH], fill = full_data[,`Permit Status`])) + 
+permit_issuance[, BOROUGH := as.factor(BOROUGH)]
+barplot(table(permit_issuance[,BOROUGH]))
+ggplot(data = data.frame(permit_issuance[,.(BOROUGH, `Permit Status`)]), aes(x = permit_issuance[,BOROUGH], fill = permit_issuance[,`Permit Status`])) + 
   geom_bar() +
   ggtitle("Distribution of DOB Permit Issuance in each Borough")+
   xlab("Borough") +
   guides(fill=guide_legend(title="Permit Status"))
 ggsave(filename = paste(wd,"Results/PermitDistributionByBorough.png", sep = '/'))
 
-table(full_data[,`Permit Status`])
+table(permit_issuance[,`Permit Status`])
 #There are 10,813 Entries with a missing Permit Status
 
 #Study the Permits that are revoked
-revoked <- full_data[`Permit Status` == 'REVOKED',]
+revoked <- permit_issuance[`Permit Status` == 'REVOKED',]
 revoked
 
 job_permits[`Job #` == 401292365,]
@@ -40,10 +126,10 @@ job_permits[`Job #` == 401292365,]
 #################################### 2. Job ~ Work ####################################
 #######################################################################################
 
-Job_frequencies <- data.table(table(full_data[,`Job #`]))
+Job_frequencies <- data.table(table(permit_issuance[,`Job #`]))
 colnames(Job_frequencies) <- c('JobID', 'NoOfWorks')
 
-sprintf("Range of Works Per Job: %i - %i",min(table(full_data[,`Job #`])), max(table(full_data[,`Job #`])))
+sprintf("Range of Works Per Job: %i - %i",min(table(permit_issuance[,`Job #`])), max(table(permit_issuance[,`Job #`])))
 
 png(filename = paste(wd,"Results/NoOfWorksPerJob<10.png", sep = '/'))
 hist(Job_frequencies[NoOfWorks < 10,NoOfWorks], breaks = 10,
@@ -69,39 +155,54 @@ dev.off()
 #################################### 3. JOB TYPE ######################################
 #######################################################################################
 
+nrow(permit_issuance[`Job Type` == 'A2'])/nrow(permit_issuance)
+
 png(filename = paste(wd,"Results/JobTypeDist.png", sep = '/'))
-barplot(table(full_data[,`Job Type`]),
+barplot(table(permit_issuance[,`Job Type`]),
         main = "Distribution of Job Types", ylab = "Count", xlab = "Job Type")
 dev.off()
 
 png(filename = paste(wd,"Results/PermitTypeDist.png", sep = '/'))
-barplot(table(full_data[,`Permit Type`]), 
+barplot(table(permit_issuance[,`Permit Type`]), 
         main = "Distribution of Permit Types", ylab = "Count", xlab = "Permit Type")
 dev.off()
 
 ##There is only 1 row with missing Permit Type. What can I do about this?
-nrow(full_data[`Permit Type` == ''])      
+nrow(permit_issuance[`Permit Type` == ''])      
 
-table(full_data[,`Job Type`])
+table(permit_issuance[,`Job Type`])
 png(filename = paste(wd,"Results/PermitsForJobTyepDist.png", sep = '/'))
 par(mfrow = c(2,3))
-barplot(table(full_data[`Job Type` == "A1",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "A1",`Permit Type`]),
         main = "A1 Jobs Distribution", ylab = "Count", xlab = "Permit Type")
-barplot(table(full_data[`Job Type` == "A2",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "A2",`Permit Type`]),
         main = "A2 Jobs Distribution", ylab = "Count", xlab = "Permit Type")
-barplot(table(full_data[`Job Type` == "A3",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "A3",`Permit Type`]),
         main = "A3 Jobs Distribution", ylab = "Count", xlab = "Permit Type")
-barplot(table(full_data[`Job Type` == "DM",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "DM",`Permit Type`]),
         main = "DM Jobs Distribution", ylab = "Count", xlab = "Permit Type")
-barplot(table(full_data[`Job Type` == "NB",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "NB",`Permit Type`]),
         main = "NB Jobs Distribution", ylab = "Count", xlab = "Permit Type")
-barplot(table(full_data[`Job Type` == "SG",`Permit Type`]),
+barplot(table(permit_issuance[`Job Type` == "SG",`Permit Type`]),
         main = "SG Jobs Distribution", ylab = "Count", xlab = "Permit Type")
 dev.off()
 par(mfrow = c(1,1))
 
+##Borough vs Job Type:
+head(permit_issuance)
+a <- head(permit_issuance)
+ggplot(data = permit_issuance, aes(x =`Job Type`, fill = BOROUGH))+
+  geom_bar()+
+  ggtitle("Distribution of Job Types")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_fill_brewer(palette="Dark2")
+ggsave(filename = paste(wd,"Results/JobDistributionByBorough.png", sep = '/'))
 
-table(full_data[,`Work Type`])
+
+tbl = table(permit_issuance$`Job Type`, permit_issuance$BOROUGH) 
+chisq.test(tbl)
+
+chisq.test(table(permit_issuance$`Job Type`, permit_issuance$BOROUGH)) 
 # ~1.5M Entries either do not mention a work type or have a work type as 'Other'
 # Of the remaining, Plumbing, Mechanical and Sprinklers accounts for ~50% (1.2M) entries
 
@@ -113,8 +214,8 @@ table(full_data[,`Work Type`])
 
 ##Evolution of Permits over the years
 
-full_data$Count <- rep(1, nrow(full_data))
-evolution <- full_data %>%
+permit_issuance$Count <- rep(1, nrow(permit_issuance))
+evolution <- permit_issuance %>%
   group_by(BOROUGH, `Job Type`, `Issuance Date`) %>%
   summarise(total = sum(Count))
 evolution <- as.data.table(evolution)
@@ -141,9 +242,9 @@ ggsave(filename = paste(wd,"Results/PermitEvolutionByBorough.png", sep = '/'))
 ##New Buildings added over the years
 
 ## No. of NB job types - No. of DM job types = No. of new buildings added
-full_data[`Job Type` == "DM", Count := -1]
+permit_issuance[`Job Type` == "DM", Count := -1]
 
-evolution <- full_data[`Job Type` == 'NB' | `Job Type` == "DM"] %>%
+evolution <- permit_issuance[`Job Type` == 'NB' | `Job Type` == "DM"] %>%
   group_by(BOROUGH, `Issuance Date`) %>%
   summarise(total = sum(Count))
 evolution <- as.data.table(evolution)
@@ -175,7 +276,7 @@ ggsave(filename = paste(wd,"Results/New Buildings ByBorough.png", sep = '/'))
 ##Let's look at Manhattan a little closely. What are the works being done there?
 
 
-manhattan <- full_data[BOROUGH == 'MANHATTAN', ]
+manhattan <- permit_issuance[BOROUGH == 'MANHATTAN', ]
 head(manhattan)
 barplot(table(manhattan[,`Job Type`]),
         main = "Distribution of Job Types in Manhattan", ylab = "Count", xlab = "Job Type")
@@ -222,11 +323,11 @@ ggsave(filename = paste(wd,"Results/FloorsAddedByYear.png", sep = '/'))
 ##last decade or so.
 
 ##
-names(full_data)
-full_data[, `Issuance Date` := date(mdy_hms(`Issuance Date`))]
-full_data[,year := format(as.Date(`Issuance Date`), "%Y")]
+names(permit_issuance)
+permit_issuance[, `Issuance Date` := date(mdy_hms(`Issuance Date`))]
+permit_issuance[,year := format(as.Date(`Issuance Date`), "%Y")]
 
-census_tract <- full_data[,.(count=.N, lat = mean(LATITUDE), lon = mean(LONGITUDE)), 
+census_tract <- permit_issuance[,.(count=.N, lat = mean(LATITUDE), lon = mean(LONGITUDE)), 
   by = c("year", "BOROUGH", "CENSUS_TRACT")]
 
 census_tract <- census_tract[!is.na(census_tract[,year])]
