@@ -127,29 +127,3 @@ ggsave(filename = paste(wd,"Results/FloorsDemolished_ByBorough.png", sep = '/'))
 
 ##There has been a 27% decrease in the no. of floors constructed since 2009.
 
-#######################################################################################
-########################### 5. Solar ###########################################
-#######################################################################################
-
-solar_jobs <- job_filings[str_detect(job_filings[,`Job Description`], regex("solar", ignore_case = TRUE)),]
-solar
-solar_jobs[, `Pre- Filing Date` := date(mdy(`Pre- Filing Date`))]
-solar_jobs$`Pre- Filing Date` <- as.Date(solar_jobs$`Pre- Filing Date`)
-solar_jobs[,Year := format(`Pre- Filing Date`, "%Y")]
-solar_jobs[,Month := format(`Pre- Filing Date`, "%m")]
-solar_jobs <- solar_jobs[,.N, by = c('Borough', 'Year', 'Month')]
-solar_jobs$Date <- paste(paste(solar_jobs$Year, solar_jobs$Month, sep = "-"), "01", sep = "-")
-head(solar_jobs)
-
-ggplot(solar_jobs, aes(x = as.Date(Date), y = N, col = Borough)) + 
-  geom_line() +
-  scale_x_date(date_labels = "%b-%Y") + xlab("") + ylab("No. of Jobs") +
-  ggtitle("Jobs including solar panels in each Borough")+
-  theme(plot.title = element_text(hjust = 0.5))
-ggsave(filename = paste(wd,"Results/SolarJobsByBorough.png", sep = '/'))
-
-##Solar panel related jobs have increased over the last few Years, but Manhattan area
-##has not kept up with the rest of the city.
-
-
-job_filings[str_detect(job_filings[,`Job Description`], regex("low energy", ignore_case = TRUE)),]

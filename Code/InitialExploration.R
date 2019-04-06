@@ -30,6 +30,7 @@ percent_change <- function(x) {
 }
 
 cols <- c("NoOfJobs")
+#Find percentage increase in Jobs. Will be compared with %increase in population.
 NoOfJobs[, "percent_change_Jobs" := lapply(.SD, percent_change), by = BOROUGH, .SDcols = cols][]
 head(NoOfJobs)
 
@@ -40,6 +41,7 @@ ggplot(NoOfJobs[year < 2019,], aes(x = year, y = NoOfJobs, col = BOROUGH, group 
   ggtitle("Evolution of Jobs filed with the DOB")+
   scale_x_discrete(breaks = c('1989', '1994', '1999', '2004', '2009', '2014', '2018'))
 ggsave(filename = paste(wd,"Results/NoOfJobsByBorough.png", sep = '/'))
+
 ggplot(NoOfJobs[year < 2019 & percent_change_Jobs < 1,], aes(x = year, y = (percent_change_Jobs*100), col = BOROUGH, group = BOROUGH)) +
   geom_line() +
   ylab("NoOfJobs") +
@@ -63,12 +65,11 @@ Population <- Population[order(Borough, Year)]
 Population <- Population[Year > 1989,]
 head(Population)
 
-
-
 cols <- c("Population")
 Population[, "percent_change_population" := lapply(.SD, percent_change), by = Borough, .SDcols = cols][]
 Population <- data.table(ddply(Population,c('Borough', 'Year'), numcolwise(mean)))
 Population <- Population[!is.na(percent_change_population),]
+
 ggplot(Population[Year < 2019,], aes(x = Year, y = (percent_change_population*100), col = Borough, group = Borough)) +
   geom_line() +
   ylab("NoOfJobs") +
